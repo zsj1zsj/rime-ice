@@ -1,0 +1,246 @@
+# Rime schema
+# encoding: utf-8
+
+schema:
+  schema_id: double_pinyin_abc  # 专有的方案标识
+  name: 智能ABC双拼
+  version: "0.17"
+  author:
+    - 佛振 <chen.sst@gmail.com>
+  description: |
+    智能ABC双拼方案。
+  dependencies:
+    - stroke
+
+switches:
+  - name: ascii_mode
+    states: [ 中, A ]
+    reset: 0
+  - name: full_shape
+    # states: [ 半角, 全角 ]
+    reset: 0
+  - name: ascii_punct
+    states: [ 。，, ．， ]  # 中英标点
+    reset: 0
+  - name: traditionalization
+    states: [ 简, 繁 ]
+    reset: 0
+  - name: emoji
+    states: [ 💀, 😄 ]
+    reset: 1
+
+engine:
+  processors:
+    - lua_processor@select_character  # 以词定字
+    - ascii_composer
+    - recognizer
+    - key_binder
+    - speller
+    - punctuator
+    - selector
+    - navigator
+    - express_editor
+  segmentors:
+    - ascii_segmentor
+    - matcher
+    - abc_segmentor
+    - punct_segmentor
+    - fallback_segmentor
+  translators:
+    - punct_translator
+    - script_translator
+    - lua_translator@date_translator      # 时间、日期、星期
+    - table_translator@custom_phrase      # 自定义短语
+    - table_translator@melt_eng           # 英文输入
+    - reverse_lookup_translator@liangfen  # 反查，两分拼字
+    - lua_translator@unicode              # Unicode
+  filters:
+    - simplifier@emoji                  # Emoji
+    - simplifier@traditionalize         # 简繁切换
+    - lua_filter@reduce_english_filter  # 降低部分英语单词在候选项的位置
+    - uniquifier                        # 去重
+
+
+
+
+# Lua 配置: 日期、时间、星期、ISO 8601、时间戳的触发关键字
+date_translator:
+  date: date            # 日期： 2022-11-29
+  time: time            # 时间： 18:13
+  week: week            # 星期： 星期二
+  datetime: datetime    # ISO 8601： 2022-11-29T18:13:11+08:00
+  timestamp: timestamp  # 时间戳： 1669716794
+
+
+# Lua 配置: 降低部分英语单词在候选项的位置
+# 详细介绍 https://dvel.me/posts/make-rime-en-better/#短单词置顶的问题
+# 正常情况： 输入 rug 得到 「1.rug 2.如果 …… 」
+# 降低之后： 输入 rug 得到 「1.如果 2.rug …… 」
+reduce_english_filter:
+  # 降低到第 idx 个位置
+  idx: 2
+  # 要降低的单词，匹配的是输入码，即全小写。
+  words: [rug, bus, ship, laos, bail, bam, bans, bib, bos, chic, chit, dab, dag, dal, dit, dub, dug, fab, gam, ger, gus, hem, hep, hud, kat, lam, lax, lex, lug, lux, moc, mos, mot, mum, nad, nay, nib, nip, pak, pap, pax, rig, rum, sac, sal, sax, sec, shin, sis, ska, slang, sus, tad, taj, tac, tic, yep, yum]
+
+
+# 从 default 继承快捷键
+key_binder:
+  import_preset: default
+  # bindings: # 也可以增加方案专属的快捷键
+
+
+# Emoji
+emoji:
+  opencc_config: emoji.json
+  option_name: emoji
+
+
+# 简繁切换
+traditionalize:
+  option_name: traditionalization
+  opencc_config: s2t.json             # s2t.json | s2hk.json | s2tw.json | s2twp.json
+  tips: all                           # 转换提示: all 都显示 | char 仅单字显示 | none 不显示。
+  excluded_types: [ reverse_lookup ]  # 不转换反查（两分拼字）的内容
+
+
+# 自定义短语
+custom_phrase:
+  dictionary: ""
+  user_dict: custom_phrase_double  # 需要手动创建 custom_phrase_double.txt 文件
+  db_class: stabledb
+  enable_completion: false # 补全提示
+  enable_sentence: false   # 禁止造句
+  initial_quality: 99      # custom_phrase 的权重应该比 pinyin 和 melt_eng 大
+
+
+# 引入八股文
+grammar:
+  language: zh-hans-t-essay-bgw
+
+
+# 主翻译器，拼音
+translator:
+  dictionary: rime_ice          # 挂载词库 rime_ice.dict.yaml
+  prism: double_pinyin          # 多方案共用一个词库时，为避免冲突，需要用 prism 指定一个名字。
+  contextual_suggestions: true  # 开启八股文
+  initial_quality: 1.2          # 拼音的权重应该比英文大
+  preedit_format:               # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
+    - xform/o(\w)/0$1/        # 零聲母先改爲0，以方便後面的轉換
+    - xform/(\w)q/$1ei/       # 雙拼第二碼轉換爲韻母
+    - xform/(\w)n/$1un/       # 提前轉換雙拼碼 n 和 g，因爲轉換後的拼音裏就快要出現這兩個字母了，那時將難以分辨出雙拼碼
+    - xform/(\w)g/$1eng/      # 當然也可以採取事先將雙拼碼變爲大寫的辦法來與轉換過的拼音做區分，可誰讓我是高手呢
+    - xform/(\w)w/$1ian/
+    - xform/([dtnljqx])r/$1iu/  # 對應多種韻母的雙拼碼，按搭配的聲母做區分（最好別用排除式如 [^o]r 容易出狀況）
+    - xform/0r/0er/             # 另一種情況，注意先不消除0，以防後面把e當作聲母轉換爲ch
+    - xform/([nljqx])t/$1iang/
+    - xform/(\w)t/$1uang/       # 上一行已經把對應到 iang 的雙拼碼 t 消滅，於是這裏不用再列舉相配的聲母
+    - xform/(\w)y/$1ing/
+    - xform/([dtnlgkhaevrzcs])o/$1uo/
+    - xform/(\w)p/$1uan/
+    - xform/([jqx])s/$1iong/
+    - xform/(\w)s/$1ong/
+    - xform/([gkhaevrzcs])d/$1ua/
+    - xform/(\w)d/$1ia/
+    - xform/(\w)f/$1en/
+    - xform/(\w)h/$1ang/
+    - xform/(\w)j/$1an/
+    - xform/(\w)k/$1ao/       # 默默檢查：雙拼碼 o 已經轉換過了
+    - xform/(\w)l/$1ai/
+    - xform/(\w)z/$1iao/
+    - xform/(\w)x/$1ie/
+    - xform/([gkhaev])c/$1uai/
+    - xform/(\w)c/$1in/
+    - xform/(\w)b/$1ou/
+    - xform/([nl])m/$1ve/
+    - xform/([jqxy])m/$1ue/
+    - xform/(\w)m/$1ui/
+    - "xform/(^|[ '])a/$1zh/"  # 復原聲母，音節開始處的雙拼字母a改寫爲zh；其他位置的才真正是a
+    - "xform/(^|[ '])e/$1ch/"
+    - "xform/(^|[ '])v/$1sh/"
+    - xform/0(\w)/$1/          # 好了，現在可以把零聲母拿掉啦
+    - xform/([nl])v/$1ü/       # 這樣纔是漢語拼音 :-)
+    - xform/([jqxy])v/$1u/
+
+
+# 次翻译器，英文
+melt_eng:
+  dictionary: melt_eng     # 挂载词库 melt_eng.dict.yaml
+  enable_sentence: false   # 禁止造句
+  enable_user_dict: false  # 禁用用户词典
+  initial_quality: 1.1     # 初始权重
+  comment_format:          # 自定义提示码
+    - xform/.*//           # 清空提示码
+
+
+# 标点符号
+# 共享目录预设的 punctuation.yaml 包含了 full_shape half_shape （全角和半角的符号映射）
+# 共享目录预设的 symbols.yaml     包含了 full_shape half_shape symbols
+# symbols 的功能是支持以「/」前缀开头输出一系列字符，自定义的 symbols_custom_double.yaml 修改成了「V」开头。
+punctuator:
+  # __include: punctuation:/          # 从共享目录引入预设的 punctuation.yaml
+  # import_preset: symbols            # 从共享目录引入预设的 symbols.yaml
+  import_preset: symbols_custom       # 从 symbols_custom.yaml 引入自己自定义的
+  __include: symbols_custom_double:/  # 从 symbols_custom_double.yaml 替换为适用于双拼的 symbols
+  # 也可以直接在这里配置：
+  # full_shape:
+    # ...
+  # half_shape:
+    # ...
+  # symbols:
+    # ...
+
+
+# 处理符合特定规则的输入码，如网址、反查
+recognizer:
+  patterns:
+    email: "^[A-Za-z][-_.0-9A-Za-z]*@.*$"                            # 自带的，e-mail 正则
+    # uppercase: "[A-Z][-_+.'0-9A-Za-z]*$"                           # 自带的，大写字母开头后，可以输入[-_+.'0-9A-Za-z]这些字符
+    url: "^(www[.]|https?:|ftp[.:]|mailto:|file:).*$|^[a-z]+[.].+$"  # 自带的，URL 正则
+    url_2: "^[A-Za-z]+[.].*"            # 支持 google.com abc.txt 等网址或文件名，会导致句号不会让句子上屏，或使用句号翻页时需要注释掉
+    win_path: "^[A-Za-z]:.*"            # 支持 c:\file\path 之类的路径输入
+    colon: "^[A-Za-z]+:.*"              # 上面的超集，可以输入冒号，不会导致句子直接上屏
+    underscore: "^[A-Za-z]+_.*"         # 可以输入下划线 _ ，不会导致句子直接上屏
+    punct: "^V([0-9]|10|[A-Za-z]+)$"    # 响应 symbols_custom_double.yaml 下的 symbols，用「V」替换「/」并支持大写
+    reverse_lookup: '^L[a-z]+$'         # 响应两分的反查
+    unicode: "^U[a-f0-9]+"              # 响应 Unicode
+
+
+# 反查：两分（拼字）
+liangfen:
+  dictionary: liangfen     # 两分词典 liangfen.dict.yaml
+  prefix: 'L'              # 以 L 开头来反查
+  enable_completion: true  # 补全提示
+  # tips: 〔两分〕          # 反查时显示的文字，建议注释掉，否则很多 L 开头的英文单词也会显示这个
+
+speller:
+  alphabet: zyxwvutsrqponmlkjihgfedcba  # 呃，倒背字母表完全是個人喜好
+  delimiter: " '"  # 隔音符號用「'」；第一位的空白用來自動插入到音節邊界處
+  algebra:  # 拼寫運算規則，這個纔是實現雙拼方案的重點。寫法有很多種，當然也可以把四百多個音節碼一條一條地列舉
+    - erase/^xx$/             # 碼表中有幾個拼音不明的字，編碼成xx了，消滅他
+    - derive/^([jqxy])u$/$1v/
+    - xform/^zh/A/            # 替換聲母鍵，用大寫以防與原有的字母混淆
+    - xform/^ch/E/
+    - xform/^sh/V/
+    - xform/^([aoe].*)$/O$1/  # 添上固定的零聲母o，先標記爲大寫O
+    - xform/ei$/Q/            # 替換韻母鍵
+    - xform/ian$/W/           # ※2
+    - xform/er$|iu$/R/        # 對應兩種韻母的；音節er現在變爲OR了
+    - xform/[iu]ang$/T/       # ※1
+    - xform/ing$/Y/
+    - xform/uo$/O/
+    - xform/uan$/P/           # ※3
+    - xform/i?ong$/S/
+    - xform/[iu]a$/D/
+    - xform/en$/F/
+    - xform/eng$/G/
+    - xform/ang$/H/           # 檢查一下在此之前是否已轉換過了帶界音的ang；好，※1處有了
+    - xform/an$/J/            # 如果※2、※3還無有出現在上文中，應該把他們提到本行之前
+    - xform/iao$/Z/           # 對——像這樣讓iao提前出場
+    - xform/ao$/K/
+    - xform/in$|uai$/C/       # 讓uai提前出場
+    - xform/ai$/L/
+    - xform/ie$/X/
+    - xform/ou$/B/
+    - xform/un$/N/
+    - xform/[uv]e$|ui$/M/
+    - xlit/QWERTYOPASDFGHJKLZXCVBNM/qwertyopasdfghjklzxcvbnm/  # 最後把雙拼碼全部變小寫
